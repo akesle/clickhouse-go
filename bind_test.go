@@ -18,11 +18,13 @@
 package clickhouse
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.openly.dev/pointy"
 )
 
 func TestBindNumeric(t *testing.T) {
@@ -208,6 +210,11 @@ func TestBindPositional(t *testing.T) {
 				query:    "SELECT ? ?",
 				params:   []any{true, false},
 				expected: "SELECT 1 0",
+			},
+			{
+				query:    "SELECT ? ? ?",
+				params:   []any{json.Number("1"), pointy.Pointer(json.Number("0")), (*json.Number)(nil)},
+				expected: "SELECT '1' '0' NULL",
 			},
 		}
 

@@ -20,11 +20,12 @@ package clickhouse
 import (
 	std_driver "database/sql/driver"
 	"fmt"
-	"github.com/ClickHouse/clickhouse-go/v2/lib/column"
 	"reflect"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/ClickHouse/clickhouse-go/v2/lib/column"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
@@ -279,6 +280,12 @@ func format(tz *time.Location, scale TimeUnit, v any) (string, error) {
 		}
 		return fmt.Sprintf("[%s]", val), nil
 	case fmt.Stringer:
+		rv := reflect.ValueOf(v)
+		if rv.Kind() == reflect.Pointer {
+			if rv.IsNil() {
+				return "NULL", nil
+			}
+		}
 		return quote(v.String()), nil
 	case column.OrderedMap:
 		values := make([]string, 0)
