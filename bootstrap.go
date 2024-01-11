@@ -2,8 +2,11 @@ package clickhouse
 
 import (
 	"bufio"
+	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -101,6 +104,9 @@ func open(dsn string) (*clickhouse, error) {
 		writeTimeout     = DefaultWriteTimeout
 		connOpenStrategy = connOpenRandom
 		poolSize         = 100
+		cert             = query.Get("cert")
+		key              = query.Get("key")
+		caCert           = query.Get("cacert")
 	)
 	if len(database) == 0 {
 		database = DefaultDatabase
@@ -110,6 +116,62 @@ func open(dsn string) (*clickhouse, error) {
 	}
 	if v, err := strconv.ParseBool(query.Get("no_delay")); err == nil {
 		noDelay = v
+	}
+	if len(tlsConfigName) > 0 {
+		if (len(cert) > 0) != (len(key) > 0) {
+			return nil,
+				errors.New("either both or neither cert and key must be specified, but only one is present")
+		}
+		tlsConfig := &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+		caPool := x509.NewCertPool()
+		if len(caCert) > 0 {
+			cert, err := os.ReadFile(caCert)
+			if err != nil {
+				return nil, fmt.Errorf("failure to read cacert: %v", err)
+			}
+			if ok := caPool.AppendCertsFromPEM(cert); !ok {
+				return nil, fmt.Errorf("failure to parse cacert: %q", caCert)
+			}
+		} else {
+			var err error
+			caPool, err = x509.SystemCertPool()
+			if err != nil {
+				return nil, fmt.Errorf("failure to load system CA certs: %v", err)
+			}
+		}
+		tlsConfig.RootCAs = caPool
+		var clientCert []byte
+		if len(cert) > 0 {
+			var err error
+			clientCert, err = os.ReadFile(cert)
+			if err != nil {
+				return nil, fmt.Errorf("failure to read cert: %v", err)
+			}
+		}
+		var clientKey []byte
+		if len(key) > 0 {
+			var err error
+			clientKey, err = os.ReadFile(key)
+			if err != nil {
+				return nil, fmt.Errorf("failure to read key: %v", err)
+			}
+		}
+		if (len(clientCert) > 0) != (len(clientKey) > 0) {
+			return nil,
+				errors.New("either both or neither cert and key must be present, but only one is provided")
+		}
+		if (len(clientCert) > 0) && (len(clientKey) > 0) {
+			certificate, err := tls.X509KeyPair(clientCert, clientKey)
+			if err != nil {
+				return nil, fmt.Errorf("failed to formalize TLS client cert: %v", err)
+			}
+			tlsConfig.Certificates = append(tlsConfig.Certificates, certificate)
+		}
+		if err := RegisterTLSConfig(tlsConfigName, tlsConfig); err != nil {
+			return nil, fmt.Errorf("failure to register TLS config: %q", tlsConfigName)
+		}
 	}
 	tlsConfig := getTLSConfigClone(tlsConfigName)
 	if tlsConfigName != "" && tlsConfig == nil {
